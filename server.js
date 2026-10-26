@@ -7,10 +7,17 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
+const { createClient } = require('@supabase/supabase-js'); // TAMBAHKAN INI
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'insecure-dev-secret-change-me';
+
+// ==================== SUPABASE INIT ====================
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_KEY
+);
 
 // ==================== POSTGRES ====================
 const pool = new Pool({
@@ -20,7 +27,7 @@ const pool = new Pool({
     password: process.env.DB_PASSWORD,
     port: Number(process.env.DB_PORT || 5432),
     ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 15000, // Naikkan ke 15 detik untuk Vercel
+    connectionTimeoutMillis: 15000,
     idleTimeoutMillis: 30000
 });
 
@@ -28,7 +35,6 @@ const pool = new Pool({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// CORS handling untuk Vercel
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
@@ -38,24 +44,8 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
-
-// ==================== PENENTUAN FOLDER UPLOADS ====================
-let UPLOADS_DIR;
-try {
-    if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
-        UPLOADS_DIR = path.join('/tmp', 'uploads');
-    } else {
-        UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
-    }
-    if (!fs.existsSync(UPLOADS_DIR)) {
-        fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    }
-} catch (err) {
-    console.warn('⚠️ Gagal membuat folder, fallback ke /tmp');
-    UPLOADS_DIR = '/tmp';
-}
-
-app.use('/uploads', express.static(UPLOADS_DIR));
+// Sajikan file statis lokal (untuk development)
+app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 
 // ==================== HELPERS ====================
 function signToken(user) {
@@ -264,9 +254,25 @@ app.post('/api/projects', authRequired, async (req, res) => {
         if (fileData && fileName) {
             const buf = Buffer.from(fileData.split(',')[1], 'base64');
             if (buf.length > 8 * 1024 * 1024) return res.status(400).json({ success: false, message: 'File max 8MB' });
+            
             const uniqueFileName = Date.now() + '-' + fileName.replace(/\s+/g, '-');
-            fs.writeFileSync(path.join(UPLOADS_DIR, uniqueFileName), buf);
-            savedFilePath = 'uploads/' + uniqueFileName;
+            
+            // UPLOAD KE SUPABASE STORAGE
+            const { data, error } = await supabase.storage
+                .from('uploads')
+                .upload(uniqueFileName, buf, {
+                    contentType: fileName.endsWith('.png') ? 'image/png' : 'image/jpeg',
+                    upsert: false
+                });
+
+            if (error) throw new Error('Gagal upload ke Supabase: ' + error.message);
+
+            // Dapatkan URL publik file
+            const { data: publicUrlData } = supabase.storage
+                .from('uploads')
+                .getPublicUrl(uniqueFileName);
+
+            savedFilePath = publicUrlData.publicUrl;
         }
 
         const id = Date.now();
