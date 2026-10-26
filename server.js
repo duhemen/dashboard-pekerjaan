@@ -420,9 +420,14 @@ app.use((err, req, res, next) => {
     res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
 });
 
-app.listen(PORT, () => {
-    console.log(`\n==================================================================`);
-    console.log(`🚀 Server aktif: http://localhost:${PORT}`);
-    console.log(`   JWT_SECRET: ${JWT_SECRET === 'insecure-dev-secret-change-me' ? '⚠️  DEFAULT (ubah .env!)' : '✅'}`);
-    console.log(`==================================================================\n`);
-});
+// Ekspor app untuk Vercel Serverless
+module.exports = app;
+
+// Hanya jalankan listen jika tidak berada di environment Vercel
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, () => {
+        console.log(`\n==================================================================`);
+        console.log(`🚀 Server lokal aktif: http://localhost:${PORT}`);
+        console.log(`==================================================================\n`);
+    });
+}
