@@ -881,18 +881,20 @@ async function handleUpdateProfile(e) {
 // ==================== INIT ====================
 document.addEventListener('DOMContentLoaded', () => {
     if (localStorage.getItem('isLoggedIn') === 'true') initializeSessionUI();
-    
-    // TAMBAHKAN INI UNTUK MEMASTIKAN SEMUA INPUT FILE TERDETEKSI
-    setTimeout(() => {
-        document.querySelectorAll('input[type="file"]').forEach(input => {
-            input.addEventListener('change', function() {
-                if (this.files && this.files[0]) {
-                    currentSelectedFile = this.files[0];
-                    // Tampilkan nama file jika elemen display ada
-                    const display = document.getElementById('file-name-display');
-                    if (display) display.innerText = `📎 ${currentSelectedFile.name} (${(currentSelectedFile.size / 1024).toFixed(1)} KB)`;
+
+    // TAMBAHKAN INI: Deteksi perubahan pada input file secara global
+    document.body.addEventListener('change', function(e) {
+        if (e.target && e.target.type === 'file') {
+            if (e.target.files && e.target.files[0]) {
+                // Paksa simpan ke variabel global
+                window.currentSelectedFile = e.target.files[0];
+                
+                // Tampilkan nama file di layar
+                const display = document.getElementById('file-name-display');
+                if (display) {
+                    display.innerText = `📎 ${window.currentSelectedFile.name} (${(window.currentSelectedFile.size / 1024).toFixed(1)} KB)`;
                 }
-            });
-        });
-    }, 2000); // Tunggu 2 detik agar DOM dari WebView siap
+            }
+        }
+    });
 });
