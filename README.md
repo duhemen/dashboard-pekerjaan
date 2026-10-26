@@ -79,7 +79,7 @@ Buka `http://localhost:3000`, login `emen / password123`, langsung ganti passwor
 
 ---
 
-Kalau Eme sudah pasang versi ini dan mau lanjut, ide-ide berikut masih bisa kita tambahkan next:
+Roadmap:
 
 - **Notifikasi email deadline** (nodemailer)
 - **PWA offline mode** (service worker)
