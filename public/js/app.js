@@ -436,33 +436,48 @@ function handleProjectSubmit(e) {
     if (new Date(endDate) < new Date(startDate)) return toast('Tanggal selesai tidak boleh sebelum mulai', 'error');
     if (!goals.length) return toast('Minimal 1 catatan pekerjaan', 'error');
 
+    // Ambil koordinat GPS saat ini (jika ada)
+    const lat = window.currentLocation ? window.currentLocation.lat : null;
+    const lng = window.currentLocation ? window.currentLocation.lng : null;
+
     const payload = { 
         name, status, progress, startDate, endDate, goals,
-        latitude: currentLocation.lat, 
-        longitude: currentLocation.lng
+        latitude: lat, 
+        longitude: lng
     };
 
     const send = (extra = {}) => {
         const url = editId ? `/api/projects/${editId}` : '/api/projects';
         const method = editId ? 'PUT' : 'POST';
+        
+        // Tampilkan loading (opsional, biar user tahu sedang proses)
+        toast('Menyimpan data...', 'info');
+
         api(url, { method, body: JSON.stringify({ ...payload, ...extra }) })
             .then(async res => {
                 const j = await res.json();
-                if (!res.ok || j.success === false) throw new Error(j.message || 'Gagal menyimpan');
+                if (!res.ok || j.success === false) {
+                    // LEMPAR ERROR ASLI DARI SERVER
+                    throw new Error(j.message || j.error || 'Gagal menyimpan data');
+                }
                 toast(editId ? 'Pekerjaan diperbarui' : 'Pekerjaan ditambahkan', 'success');
                 resetProjectForm();
                 loadDashboardData();
                 switchTab('dashboard');
-            }).catch(err => toast(err.message, 'error'));
+            }).catch(err => {
+                // TAMPILKAN PESAN ERROR ASLI DI TOAST
+                console.error('Save Error:', err);
+                toast('Error: ' + err.message, 'error');
+            });
     };
 
     // Jika mode edit ATAU ada file baru yang dipilih
-    if (currentSelectedFile && !editId) {
-        if (currentSelectedFile.size > 8 * 1024 * 1024) return toast('File maksimal 8MB', 'error');
+    if (window.currentSelectedFile && !editId) {
+        if (window.currentSelectedFile.size > 8 * 1024 * 1024) return toast('File maksimal 8MB', 'error');
         
         const reader = new FileReader();
-        reader.onload = ev => send({ fileData: ev.target.result, fileName: currentSelectedFile.name });
-        reader.readAsDataURL(currentSelectedFile);
+        reader.onload = ev => send({ fileData: ev.target.result, fileName: window.currentSelectedFile.name });
+        reader.readAsDataURL(window.currentSelectedFile);
     } else {
         send();
     }

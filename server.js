@@ -19,38 +19,42 @@ const pool = new Pool({
     database: process.env.DB_NAME,
     password: process.env.DB_PASSWORD,
     port: Number(process.env.DB_PORT || 5432),
-    ssl: {
-        rejectUnauthorized: false
-    }
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 15000, // Naikkan ke 15 detik untuk Vercel
+    idleTimeoutMillis: 30000
 });
 
 // ==================== MIDDLEWARE ====================
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Static: index.html di public/, css/js/uploads di subfolder
+// CORS handling untuk Vercel
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ==================== PENENTUAN FOLDER UPLOADS ====================
-// Vercel (Production) hanya mengizinkan penulisan file di folder /tmp
-// Lokal (Development) tetap di folder public/uploads agar permanen
 let UPLOADS_DIR;
-if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
-    UPLOADS_DIR = path.join('/tmp', 'uploads');
-} else {
-    UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
-}
-
 try {
+    if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+        UPLOADS_DIR = path.join('/tmp', 'uploads');
+    } else {
+        UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
+    }
     if (!fs.existsSync(UPLOADS_DIR)) {
         fs.mkdirSync(UPLOADS_DIR, { recursive: true });
     }
 } catch (err) {
-    console.warn('⚠️ Gagal membuat folder uploads, fallback ke /tmp:', err.message);
+    console.warn('⚠️ Gagal membuat folder, fallback ke /tmp');
     UPLOADS_DIR = '/tmp';
 }
 
-// Sajikan file statis dari folder uploads yang sudah ditentukan
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 // ==================== HELPERS ====================
@@ -72,9 +76,7 @@ function authRequired(req, res, next) {
 
 function requireRole(...allowed) {
     return (req, res, next) =>
-        allowed.includes(req.user.roleId)
-            ? next()
-            : res.status(403).json({ success: false, message: 'Akses ditolak' });
+        allowed.includes(req.user.roleId) ? next() : res.status(403).json({ success: false, message: 'Akses ditolak' });
 }
 
 async function logActivity(actor, action, detail = '') {
@@ -82,12 +84,11 @@ async function logActivity(actor, action, detail = '') {
     catch (e) { console.error('logActivity error:', e.message); }
 }
 
-// ==================== RATE LIMIT LOGIN ====================
+// ==================== RATE LIMIT ====================
 const loginLimiter = rateLimit({
-    windowMs: Number(process.env.LOGIN_RATE_WINDOW_MIN || 15) * 60 * 1000,
-    max: Number(process.env.LOGIN_RATE_MAX || 8),
-    standardHeaders: true, legacyHeaders: false,
-    message: { success: false, message: 'Terlalu banyak percobaan login. Coba lagi nanti.' },
+    windowMs: 15 * 60 * 1000,
+    max: 8,
+    message: { success: false, message: 'Terlalu banyak percobaan login.' },
 });
 
 // ==================== AUTH ====================
@@ -97,9 +98,9 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
         if (!username || !password) return res.status(400).json({ success: false, message: 'Username & password wajib' });
 
         const r = await pool.query(
-            `SELECT u.*, r.name AS role_name, r.permissions
-             FROM users u LEFT JOIN roles r ON u.role_id = r.id
-             WHERE u.username = $1`, [username]);
+            `SELECT u.*, r.name AS role_name, r.permissions FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.username = $1`, 
+            [username]
+        );
 
         if (!r.rows.length) return res.status(401).json({ success: false, message: 'Kredensial salah' });
         const u = r.rows[0];
@@ -108,23 +109,17 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
         await logActivity(u.username, 'LOGIN', req.ip);
         res.json({
-            success: true,
-            token: signToken(u),
-            user: {
-                username: u.username, fullName: u.full_name, roleId: u.role_id,
-                roleName: u.role_name, permissions: u.permissions
-            }
+            success: true, token: signToken(u),
+            user: { username: u.username, fullName: u.full_name, roleId: u.role_id, roleName: u.role_name, permissions: u.permissions }
         });
     } catch (err) { console.error(err); res.status(500).json({ success: false, message: 'Server error' }); }
 });
 
-// Ganti password sendiri
 app.post('/api/auth/change-password', authRequired, async (req, res) => {
     try {
         const { oldPassword, newPassword } = req.body || {};
         if (!oldPassword || !newPassword) return res.status(400).json({ success: false, message: 'Data tidak lengkap' });
-        if (newPassword.length < 6) return res.status(400).json({ success: false, message: 'Password minimal 6 karakter' });
-
+        
         const r = await pool.query('SELECT password FROM users WHERE username=$1', [req.user.username]);
         const ok = await bcrypt.compare(oldPassword, r.rows[0].password);
         if (!ok) return res.status(400).json({ success: false, message: 'Password lama salah' });
@@ -136,46 +131,32 @@ app.post('/api/auth/change-password', authRequired, async (req, res) => {
     } catch (err) { res.status(500).json({ success: false, message: 'Server error' }); }
 });
 
-// Endpoint Update Profil Mandiri
 app.put('/api/auth/profile', authRequired, async (req, res) => {
     try {
         const { fullName } = req.body;
-        if (!fullName) return res.status(400).json({ success: false, message: 'Nama lengkap wajib diisi' });
+        if (!fullName) return res.status(400).json({ success: false, message: 'Nama wajib diisi' });
         
         await pool.query('UPDATE users SET full_name=$1 WHERE username=$2', [fullName, req.user.username]);
         await logActivity(req.user.username, 'UPDATE_PROFILE', `Mengubah nama menjadi ${fullName}`);
         
-        // Ambil data terbaru
         const r = await pool.query('SELECT username, full_name, role_id FROM users WHERE username=$1', [req.user.username]);
         const user = r.rows[0];
 
-        res.json({ 
-            success: true, 
-            user: { username: user.username, fullName: user.full_name, roleId: user.role_id } 
-        });
-    } catch (err) { 
-        console.error(err);
-        res.status(500).json({ success: false, message: 'Server error' }); 
-    }
+        res.json({ success: true, user: { username: user.username, fullName: user.full_name, roleId: user.role_id } });
+    } catch (err) { console.error(err); res.status(500).json({ success: false, message: 'Server error' }); }
 });
 
 // ==================== ROLES ====================
 app.get('/api/roles', authRequired, async (req, res) => {
-    try {
-        const result = await pool.query('SELECT id, name, permissions FROM roles ORDER BY id ASC');
-        res.json(result.rows);
-    } catch (err) { res.status(500).json(err); }
+    try { const result = await pool.query('SELECT id, name, permissions FROM roles ORDER BY id ASC'); res.json(result.rows); } 
+    catch (err) { res.status(500).json(err); }
 });
 
 app.post('/api/roles', authRequired, requireRole('R01'), async (req, res) => {
     try {
         const { name } = req.body;
-        if (!name) return res.status(400).json({ success: false, message: 'Nama jabatan wajib' });
         const id = 'R-' + Date.now();
-        await pool.query(
-            'INSERT INTO roles (id, name, permissions) VALUES ($1,$2,$3)',
-            [id, name, JSON.stringify(['view_dashboard', 'input_data'])]
-        );
+        await pool.query('INSERT INTO roles (id, name, permissions) VALUES ($1,$2,$3)', [id, name, JSON.stringify(['view_dashboard', 'input_data'])]);
         await logActivity(req.user.username, 'CREATE_ROLE', name);
         res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -183,9 +164,8 @@ app.post('/api/roles', authRequired, requireRole('R01'), async (req, res) => {
 
 app.put('/api/roles/:id', authRequired, requireRole('R01'), async (req, res) => {
     try {
-        const { name } = req.body;
-        await pool.query('UPDATE roles SET name=$1 WHERE id=$2', [name, req.params.id]);
-        await logActivity(req.user.username, 'UPDATE_ROLE', `${req.params.id} → ${name}`);
+        await pool.query('UPDATE roles SET name=$1 WHERE id=$2', [req.body.name, req.params.id]);
+        await logActivity(req.user.username, 'UPDATE_ROLE', `${req.params.id} → ${req.body.name}`);
         res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
 });
@@ -203,10 +183,7 @@ app.delete('/api/roles/:id', authRequired, requireRole('R01'), async (req, res) 
 // ==================== USERS ====================
 app.get('/api/users', authRequired, requireRole('R01'), async (req, res) => {
     try {
-        const q = `
-            SELECT u.username, u.full_name AS "fullName", u.role_id AS "roleId", r.name AS "roleName"
-            FROM users u LEFT JOIN roles r ON u.role_id = r.id ORDER BY u.username ASC
-        `;
+        const q = `SELECT u.username, u.full_name AS "fullName", u.role_id AS "roleId", r.name AS "roleName" FROM users u LEFT JOIN roles r ON u.role_id = r.id ORDER BY u.username ASC`;
         const result = await pool.query(q);
         res.json(result.rows);
     } catch (err) { res.status(500).json(err); }
@@ -215,16 +192,14 @@ app.get('/api/users', authRequired, requireRole('R01'), async (req, res) => {
 app.post('/api/users', authRequired, requireRole('R01'), async (req, res) => {
     try {
         const { username, password, fullName, roleId } = req.body || {};
-        if (!username || !password || !fullName || !roleId)
-            return res.status(400).json({ success: false, message: 'Data tidak lengkap' });
+        if (!username || !password || !fullName || !roleId) return res.status(400).json({ success: false, message: 'Data tidak lengkap' });
         if (password.length < 6) return res.status(400).json({ success: false, message: 'Password min 6 karakter' });
 
         const check = await pool.query('SELECT username FROM users WHERE username=$1', [username]);
         if (check.rows.length) return res.status(400).json({ success: false, message: 'Username telah terdaftar!' });
 
         const hash = await bcrypt.hash(password, 10);
-        await pool.query('INSERT INTO users (username,password,full_name,role_id) VALUES ($1,$2,$3,$4)',
-            [username, hash, fullName, roleId]);
+        await pool.query('INSERT INTO users (username,password,full_name,role_id) VALUES ($1,$2,$3,$4)', [username, hash, fullName, roleId]);
         await logActivity(req.user.username, 'CREATE_USER', username);
         res.json({ success: true });
     } catch (err) { res.status(500).json(err); }
@@ -232,8 +207,7 @@ app.post('/api/users', authRequired, requireRole('R01'), async (req, res) => {
 
 app.delete('/api/users/:username', authRequired, requireRole('R01'), async (req, res) => {
     try {
-        if (req.params.username === req.user.username)
-            return res.status(400).json({ success: false, message: 'Tidak bisa menghapus akun sendiri' });
+        if (req.params.username === req.user.username) return res.status(400).json({ success: false, message: 'Tidak bisa menghapus akun sendiri' });
         await pool.query('DELETE FROM users WHERE username=$1', [req.params.username]);
         await logActivity(req.user.username, 'DELETE_USER', req.params.username);
         res.json({ success: true });
@@ -256,35 +230,23 @@ app.get('/api/projects', authRequired, async (req, res) => {
 
         const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
         const q = `
-            SELECT id, name, status, progress,
-                   to_char(start_date,'YYYY-MM-DD') AS "startDate",
-                   to_char(end_date,'YYYY-MM-DD') AS "endDate",
-                   goals, attachment, created_by AS "createdBy",
-                   to_char(created_at,'YYYY-MM-DD HH24:MI') AS "createdAt"
-            FROM projects ${where}
-            ORDER BY id DESC
-            LIMIT $${i++} OFFSET $${i++}
+            SELECT id, name, status, progress, to_char(start_date,'YYYY-MM-DD') AS "startDate", to_char(end_date,'YYYY-MM-DD') AS "endDate", goals, attachment, created_by AS "createdBy", to_char(created_at,'YYYY-MM-DD HH24:MI') AS "createdAt"
+            FROM projects ${where} ORDER BY id DESC LIMIT $${i++} OFFSET $${i++}
         `;
         params.push(parseInt(limit), offset);
         const result = await pool.query(q, params);
-
         const cnt = await pool.query(`SELECT COUNT(*)::int AS c FROM projects ${where}`, params.slice(0, params.length - 2));
+        
         res.json({ data: result.rows, total: cnt.rows[0].c, page: parseInt(page), limit: parseInt(limit) });
     } catch (err) { console.error(err); res.status(500).json(err); }
 });
 
 app.get('/api/projects/:id', authRequired, async (req, res) => {
     try {
-        const r = await pool.query(
-            `SELECT id, name, status, progress,
-                    to_char(start_date,'YYYY-MM-DD') AS "startDate",
-                    to_char(end_date,'YYYY-MM-DD') AS "endDate",
-                    goals, attachment, created_by AS "createdBy"
-             FROM projects WHERE id=$1`, [req.params.id]);
+        const r = await pool.query(`SELECT id, name, status, progress, to_char(start_date,'YYYY-MM-DD') AS "startDate", to_char(end_date,'YYYY-MM-DD') AS "endDate", goals, attachment, created_by AS "createdBy" FROM projects WHERE id=$1`, [req.params.id]);
         if (!r.rows.length) return res.status(404).json({ success: false, message: 'Tidak ditemukan' });
         const p = r.rows[0];
-        if (req.user.roleId !== 'R01' && p.createdBy !== req.user.username)
-            return res.status(403).json({ success: false, message: 'Akses ditolak' });
+        if (req.user.roleId !== 'R01' && p.createdBy !== req.user.username) return res.status(403).json({ success: false, message: 'Akses ditolak' });
         res.json(p);
     } catch (err) { res.status(500).json(err); }
 });
@@ -292,13 +254,11 @@ app.get('/api/projects/:id', authRequired, async (req, res) => {
 app.post('/api/projects', authRequired, async (req, res) => {
     try {
         const { name, status, progress, startDate, endDate, goals, fileData, fileName, latitude, longitude } = req.body;
-        if (!name || progress == null || !startDate || !endDate)
-            return res.status(400).json({ success: false, message: 'Data tidak lengkap' });
+        if (!name || progress == null || !startDate || !endDate) return res.status(400).json({ success: false, message: 'Data tidak lengkap' });
+        
         const prog = parseInt(progress, 10);
-        if (isNaN(prog) || prog < 0 || prog > 100)
-            return res.status(400).json({ success: false, message: 'Progress 0–100' });
-        if (new Date(endDate) < new Date(startDate))
-            return res.status(400).json({ success: false, message: 'Tanggal selesai < mulai' });
+        if (isNaN(prog) || prog < 0 || prog > 100) return res.status(400).json({ success: false, message: 'Progress 0–100' });
+        if (new Date(endDate) < new Date(startDate)) return res.status(400).json({ success: false, message: 'Tanggal selesai < mulai' });
 
         let savedFilePath = null;
         if (fileData && fileName) {
@@ -311,27 +271,29 @@ app.post('/api/projects', authRequired, async (req, res) => {
 
         const id = Date.now();
         const goalsArray = Array.isArray(goals) ? goals : [goals].filter(Boolean);
+        
         await pool.query(
-            `INSERT INTO projects (id,name,status,progress,start_date,end_date,goals,attachment,created_by,latitude,longitude)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            `INSERT INTO projects (id,name,status,progress,start_date,end_date,goals,attachment,created_by,latitude,longitude) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
             [id, name, status, prog, startDate, endDate, JSON.stringify(goalsArray), savedFilePath, req.user.username, latitude || null, longitude || null]
         );
+        
         await logActivity(req.user.username, 'CREATE_PROJECT', name);
         res.json({ success: true, id });
-    } catch (err) { console.error(err); res.status(500).json(err); }
+    } catch (err) { 
+        console.error("DB Insert Error:", err); 
+        res.status(500).json({ success: false, message: err.message }); 
+    }
 });
 
 app.put('/api/projects/:id', authRequired, async (req, res) => {
     try {
         const own = await pool.query('SELECT created_by FROM projects WHERE id=$1', [req.params.id]);
         if (!own.rows.length) return res.status(404).json({ success: false, message: 'Tidak ditemukan' });
-        if (req.user.roleId !== 'R01' && own.rows[0].created_by !== req.user.username)
-            return res.status(403).json({ success: false, message: 'Akses ditolak' });
+        if (req.user.roleId !== 'R01' && own.rows[0].created_by !== req.user.username) return res.status(403).json({ success: false, message: 'Akses ditolak' });
 
         const { name, status, progress, startDate, endDate, goals } = req.body;
         await pool.query(
-            `UPDATE projects SET name=$1,status=$2,progress=$3,start_date=$4,end_date=$5,goals=$6,updated_at=now()
-             WHERE id=$7`,
+            `UPDATE projects SET name=$1,status=$2,progress=$3,start_date=$4,end_date=$5,goals=$6,updated_at=now() WHERE id=$7`,
             [name, status, parseInt(progress, 10), startDate, endDate, JSON.stringify(goals || []), req.params.id]
         );
         await logActivity(req.user.username, 'UPDATE_PROJECT', `${req.params.id}: ${name}`);
@@ -343,8 +305,8 @@ app.delete('/api/projects/:id', authRequired, async (req, res) => {
     try {
         const own = await pool.query('SELECT created_by, name FROM projects WHERE id=$1', [req.params.id]);
         if (!own.rows.length) return res.status(404).json({ success: false, message: 'Tidak ditemukan' });
-        if (req.user.roleId !== 'R01' && own.rows[0].created_by !== req.user.username)
-            return res.status(403).json({ success: false, message: 'Akses ditolak' });
+        if (req.user.roleId !== 'R01' && own.rows[0].created_by !== req.user.username) return res.status(403).json({ success: false, message: 'Akses ditolak' });
+        
         await pool.query('DELETE FROM projects WHERE id=$1', [req.params.id]);
         await logActivity(req.user.username, 'DELETE_PROJECT', own.rows[0].name);
         res.json({ success: true });
@@ -437,19 +399,13 @@ app.get('/*splat', (req, res) => res.sendFile(path.join(__dirname, 'public', 'in
 app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'Endpoint tidak ditemukan' }));
 
 app.use((err, req, res, next) => {
-    console.error(err);
+    console.error("Global Error:", err);
     if (res.headersSent) return next(err);
-    res.status(500).json({ success: false, message: 'Terjadi kesalahan server' });
+    res.status(500).json({ success: false, message: 'Terjadi kesalahan server: ' + err.message });
 });
 
-// Ekspor app untuk Vercel Serverless
 module.exports = app;
 
-// Hanya jalankan listen jika tidak berada di environment Vercel
 if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, () => {
-        console.log(`\n==================================================================`);
-        console.log(`🚀 Server lokal aktif: http://localhost:${PORT}`);
-        console.log(`==================================================================\n`);
-    });
+    app.listen(PORT, () => console.log(`🚀 Server lokal aktif: http://localhost:${PORT}`));
 }
