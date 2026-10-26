@@ -251,28 +251,47 @@ app.post('/api/projects', authRequired, async (req, res) => {
         if (new Date(endDate) < new Date(startDate)) return res.status(400).json({ success: false, message: 'Tanggal selesai < mulai' });
 
         let savedFilePath = null;
+        
         if (fileData && fileName) {
-            const buf = Buffer.from(fileData.split(',')[1], 'base64');
-            if (buf.length > 8 * 1024 * 1024) return res.status(400).json({ success: false, message: 'File max 8MB' });
-            
-            const uniqueFileName = Date.now() + '-' + fileName.replace(/\s+/g, '-');
-            
-            // UPLOAD KE SUPABASE STORAGE
-            const { data, error } = await supabase.storage
-                .from('uploads')
-                .upload(uniqueFileName, buf, {
-                    contentType: fileName.endsWith('.png') ? 'image/png' : 'image/jpeg',
-                    upsert: false
-                });
+            try {
+                // 1. Konversi Base64 ke ArrayBuffer (Lebih stabil di Vercel daripada Buffer)
+                const base64Data = fileData.split(',')[1];
+                const buf = Buffer.from(base64Data, 'base64');
+                const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+                
+                if (arrayBuffer.byteLength > 8 * 1024 * 1024) {
+                    return res.status(400).json({ success: false, message: 'File max 8MB' });
+                }
+                
+                const uniqueFileName = Date.now() + '-' + fileName.replace(/\s+/g, '-');
+                
+                // 2. Upload ke Supabase
+                const { data, error } = await supabase.storage
+                    .from('uploads')
+                    .upload(uniqueFileName, arrayBuffer, {
+                        contentType: fileName.endsWith('.png') ? 'image/png' : 'image/jpeg',
+                        upsert: false
+                    });
 
-            if (error) throw new Error('Gagal upload ke Supabase: ' + error.message);
+                // 3. Cek Error dengan Jelas
+                if (error) {
+                    console.error("❌ Supabase Upload Error:", error);
+                    throw new Error('Gagal upload ke Supabase: ' + error.message);
+                }
 
-            // Dapatkan URL publik file
-            const { data: publicUrlData } = supabase.storage
-                .from('uploads')
-                .getPublicUrl(uniqueFileName);
+                // 4. Dapatkan URL Publik
+                const { data: publicUrlData } = supabase.storage
+                    .from('uploads')
+                    .getPublicUrl(uniqueFileName);
 
-            savedFilePath = publicUrlData.publicUrl;
+                savedFilePath = publicUrlData.publicUrl;
+                console.log("✅ File berhasil diupload ke:", savedFilePath);
+
+            } catch (uploadErr) {
+                // Jika upload gagal, hentikan proses dan kirim pesan error ke frontend
+                console.error("Detail Error Upload:", uploadErr);
+                return res.status(500).json({ success: false, message: uploadErr.message });
+            }
         }
 
         const id = Date.now();
