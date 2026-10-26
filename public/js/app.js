@@ -506,14 +506,15 @@ function handleProjectSubmit(e) {
             });
     };
 
-    // Jika mode edit ATAU ada file baru yang dipilih
-    if (window.currentSelectedFile && !editId) {
-        if (window.currentSelectedFile.size > 8 * 1024 * 1024) return toast('File maksimal 8MB', 'error');
+    // Cek apakah ada file yang dipilih (baik dari variabel lokal maupun global)
+    const fileToUpload = currentSelectedFile || window.currentSelectedFile;
+
+    if (fileToUpload && !editId) {
+        if (fileToUpload.size > 8 * 1024 * 1024) return toast('File maksimal 8MB', 'error');
         
-        // PROSES KOMPRESI GAMBAR
         toast('Mengompres gambar...', 'info');
-        compressImage(window.currentSelectedFile, 1280, 1280, 0.7, function(compressedBase64) {
-            send({ fileData: compressedBase64, fileName: window.currentSelectedFile.name });
+        compressImage(fileToUpload, 1280, 1280, 0.7, function(compressedBase64) {
+            send({ fileData: compressedBase64, fileName: fileToUpload.name });
         });
     } else {
         send();
@@ -526,7 +527,12 @@ let currentSelectedFile = null;
 function handleFileSelect(inputElement) {
     if (inputElement.files && inputElement.files[0]) {
         currentSelectedFile = inputElement.files[0];
-        document.getElementById('file-name-display').innerText = `📎 ${currentSelectedFile.name} (${(currentSelectedFile.size / 1024).toFixed(1)} KB)`;
+        window.currentSelectedFile = currentSelectedFile; // <-- TAMBAHKAN INI (agar terbaca lintas fungsi)
+        
+        const display = document.getElementById('file-name-display');
+        if (display) {
+            display.innerText = `📎 ${currentSelectedFile.name} (${(currentSelectedFile.size / 1024).toFixed(1)} KB)`;
+        }
     }
 }
 
@@ -882,19 +888,10 @@ async function handleUpdateProfile(e) {
 document.addEventListener('DOMContentLoaded', () => {
     if (localStorage.getItem('isLoggedIn') === 'true') initializeSessionUI();
 
-    // TAMBAHKAN INI: Deteksi perubahan pada input file secara global
+    // Deteksi perubahan pada input file secara global
     document.body.addEventListener('change', function(e) {
         if (e.target && e.target.type === 'file') {
-            if (e.target.files && e.target.files[0]) {
-                // Paksa simpan ke variabel global
-                window.currentSelectedFile = e.target.files[0];
-                
-                // Tampilkan nama file di layar
-                const display = document.getElementById('file-name-display');
-                if (display) {
-                    display.innerText = `📎 ${window.currentSelectedFile.name} (${(window.currentSelectedFile.size / 1024).toFixed(1)} KB)`;
-                }
-            }
+            handleFileSelect(e.target); // Panggil fungsi yang sudah diperbaiki
         }
     });
 });
