@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enterprise RBAC Job Dashboard v2</title>
+<link rel="stylesheet" href="css/style.css">
+<!-- TAMBAHKAN BARIS INI UNTUK PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#6366f1">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3145/3145856.png">
+</head>
+<body class="min-h-screen">
+
+<!-- LOGIN -->
+<div id="login-screen" class="login-overlay">
+    <div class="login-card">
+        <h2 style="font-size:1.5rem;text-align:center;color:#fff;margin-bottom:.5rem;">Masuk Sistem</h2>
+        <p style="text-align:center;color:#94a3b8;font-size:.85rem;margin-bottom:2rem;">Dashboard Integrasi RBAC Enterprise</p>
+        <div id="login-error" class="hidden" style="color:#f87171;font-size:.85rem;margin-bottom:1rem;text-align:center;"></div>
+        <form onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label class="text-sm text-gray-400">Username</label>
+                <input type="text" id="login-username" required class="form-input" placeholder="Username">
+            </div>
+            <div class="form-group">
+                <label class="text-sm text-gray-400">Password</label>
+                <input type="password" id="login-password" required class="form-input" placeholder="••••••••">
+            </div>
+            <button type="submit" class="btn-submit w-full" style="margin-top:.5rem;">Masuk</button>
+        </form>
+    </div>
+</div>
+
+<!-- APP -->
+<div id="main-application" class="flex h-screen overflow-hidden hidden">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+            <div style="display:flex;align-items:center;gap:.75rem;">
+                <div id="avatar" class="avatar">E</div>
+                <div>
+                    <h1 id="user-display-name" style="font-size:1rem;color:#fff;margin:0;">Job Dashboard</h1>
+                    <p id="user-display-role" style="font-size:.75rem;color:#94a3b8;margin:0;">Memuat…</p>
+                </div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+        <div style="padding: 0 0 1rem 0;">
+            <input type="text" id="global-search" placeholder="🔍 Cari pekerjaan..." class="form-input" style="margin:0; padding: 8px 12px; font-size: 0.85rem; background: rgba(15, 23, 42, 0.5);" oninput="handleGlobalSearch(this.value)">
+        </div>
+            <button onclick="switchTab('dashboard')" id="btn-dashboard" class="tab-btn btn-active">📊 Dashboard Utama</button>
+            <button onclick="switchTab('laporan')" id="btn-laporan" class="tab-btn btn-inactive">📈 Laporan Pekerjaan</button>
+            <button onclick="switchTab('goals')" id="btn-goals" class="tab-btn btn-inactive">🎯 Catatan Pekerjaan</button>
+            <button onclick="switchTab('input')" id="btn-input" class="tab-btn btn-inactive">📥 Entry Input Data</button>
+            <button onclick="switchTab('leaderboard')" id="btn-leaderboard" class="tab-btn btn-inactive">🏆 Leaderboard</button>
+            <button onclick="switchTab('rbac')" id="btn-rbac" class="tab-btn btn-inactive">👥 User & Jabatan</button>
+            <button onclick="switchTab('activity')" id="btn-activity" class="tab-btn btn-inactive">📜 Log Aktivitas</button>
+            <button onclick="switchTab('settings')" id="btn-settings" class="tab-btn btn-inactive">⚙️ Pengaturan</button>
+        </nav>
+        <div style="padding:1rem;border-top:1px solid #334155;">
+            <button onclick="handleLogout()" class="tab-btn btn-inactive" style="color:#f87171;">🚪 Keluar</button>
+        </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="flex-1 flex flex-col overflow-y-auto p-8">
+        <button id="hamburger" onclick="toggleSidebar()" class="hamburger">☰</button>
+
+        <!-- TAB: Dashboard -->
+        <div id="tab-dashboard" class="tab-content">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1rem;">
+                <h2 class="page-title">Ringkasan Analitik Kerja</h2>
+                <div id="filter-pegawai-container" class="hidden" style="display:flex;align-items:center;gap:.75rem;">
+                    <label class="text-sm text-gray-400">Pantau:</label>
+                    <select id="filter-username" onchange="loadDashboardData()" class="form-input" style="min-width:220px;margin:0;padding:6px 12px;">
+                        <option value="ALL">-- Seluruh Pegawai (Kumulatif) --</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="bg-gray-800-card">
+                    <p class="text-gray-400 text-sm">Total Pekerjaan</p>
+                    <p id="stat-total" class="stat-value text-indigo-400">0</p>
+                </div>
+                <div class="bg-gray-800-card">
+                    <p class="text-gray-400 text-sm">Pekerjaan Selesai (100%)</p>
+                    <p id="stat-selesai" class="stat-value text-green-400">0</p>
+                </div>
+                <div class="bg-gray-800-card">
+                    <p class="text-gray-400 text-sm">Rata-rata Progress</p>
+                    <p id="stat-avg" class="stat-value text-yellow-400">0%</p>
+                </div>
+            </div>
+            <div class="grid md:grid-cols-3 gap-6" style="margin-top:2rem;">
+                <div class="bg-gray-800-card" style="grid-column: span 2;">
+                    <h3 class="text-sm text-gray-400 mb-4" style="text-transform:uppercase;">📈 Grafik Progress</h3>
+                    <div style="height:260px;position:relative;"><canvas id="myChart" width="500" height="250"></canvas></div>
+                </div>
+                <div class="bg-gray-800-card">
+                    <h3 class="text-sm text-gray-400 mb-4" style="text-transform:uppercase;">🧠 Wawasan Otomatis</h3>
+                    <div id="insights" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Laporan -->
+        <div id="tab-laporan" class="tab-content hidden">
+            <h2 class="page-title">Laporan Pekerjaan</h2>
+            <div style="display:flex;flex-wrap:wrap;gap:.75rem;margin-bottom:1rem;">
+                <input id="search-laporan" type="text" placeholder="🔍 Cari nama pekerjaan…" class="form-input" style="flex:1;min-width:200px;margin:0;" oninput="loadDashboardData()">
+                <input id="filter-from" type="date" class="form-input" style="margin:0;" onchange="loadDashboardData()">
+                <input id="filter-to" type="date" class="form-input" style="margin:0;" onchange="loadDashboardData()">
+                <button onclick="exportCSV()" class="btn-submit">⬇️ Export CSV</button>
+                <button onclick="window.print()" class="btn-submit" style="background:#334155;">🖨️ Print/PDF</button>
+            </div>
+            <div class="table-wrap">
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th>Nama Pekerjaan</th>
+                            <th>Status</th>
+                            <th>Progress</th>
+                            <th>Mulai</th>
+                            <th>Selesai</th>
+                            <th>Bukti</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="projects-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB: Goals -->
+        <div id="tab-goals" class="tab-content hidden">
+            <h2 class="page-title">Catatan Pekerjaan</h2>
+            <div class="table-wrap" style="overflow-x:auto;">
+                <table class="w-full" style="min-width:1000px;">
+                    <thead id="dynamic-goals-header">
+                        <tr>
+                            <th rowspan="2" style="text-align:left;width:20%;">Nama Pekerjaan</th>
+                            <th id="main-berkala-header" style="text-align:center;">Catatan Berkala Kalender Kerja</th>
+                        </tr>
+                        <tr id="sub-berkala-header"><th style="text-align:center;color:#475569;">Sinkronisasi…</th></tr>
+                    </thead>
+                    <tbody id="goals-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB: Input -->
+        <div id="tab-input" class="tab-content hidden">
+            <h2 class="page-title">Entry Laporan Pekerjaan</h2>
+            <div class="bg-gray-800-card" style="max-width:640px;">
+                <form onsubmit="handleProjectSubmit(event)">
+                    <input type="hidden" id="edit-project-id">
+                    <div class="form-group">
+                        <label class="text-sm text-gray-400">Nama Pekerjaan</label>
+                        <input type="text" id="inp-name" required class="form-input" placeholder="Contoh: Program Pilah Sampah">
+                    </div>
+                    <div class="form-group">
+                        <label class="text-sm text-gray-400">Progress (%)</label>
+                        <input type="number" id="inp-progress" min="0" max="100" required class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="text-sm text-gray-400">Status Berkala</label>
+                        <select id="inp-status" class="form-input">
+                            <option value="Harian">Harian</option>
+                            <option value="Mingguan">Mingguan</option>
+                            <option value="Bulanan">Bulanan</option>
+                            <option value="Tahunan">Tahunan</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="text-sm text-gray-400">Tanggal Mulai & Selesai</label>
+                        <div style="display:flex;gap:1rem;">
+                            <input type="date" id="inp-start" required class="form-input" style="flex:1;">
+                            <input type="date" id="inp-end" required class="form-input" style="flex:1;">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="text-sm text-gray-400">Catatan (pisah koma)</label>
+                        <input type="text" id="inp-goals" required class="form-input" placeholder="Pilah kardus, Pilah botol, Laporan">
+                    </div>
+                    <div class="form-group">
+                        <label class="text-sm text-gray-400">Lampiran Bukti</label>
+                        
+                        <!-- Tombol Kustom -->
+                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <button type="button" onclick="openCameraModal()" class="btn-submit" style="flex: 1; background: #0f172a; border: 1px solid #334155; padding: 8px;">
+                                📷 Kamera
+                            </button>
+                            <button type="button" onclick="document.getElementById('input-gallery').click()" class="btn-submit" style="flex: 1; background: #0f172a; border: 1px solid #334155; padding: 8px;">
+                                🖼️ Galeri
+                            </button>
+                            <button type="button" onclick="document.getElementById('input-doc').click()" class="btn-submit" style="flex: 1; background: #0f172a; border: 1px solid #334155; padding: 8px;">
+                                📄 Dokumen
+                            </button>
+                        </div>
+                        
+                        <!-- Input tersembunyi -->
+                        <input type="file" id="input-camera" accept="image/*" capture="environment" class="hidden" onchange="handleFileSelect(this)">
+                        <input type="file" id="input-gallery" accept="image/*" class="hidden" onchange="handleFileSelect(this)">
+                        <input type="file" id="input-doc" accept="*/*" class="hidden" onchange="handleFileSelect(this)">
+
+                        <!-- Info nama file yang dipilih -->
+                        <div id="file-name-display" style="font-size: 0.8rem; color: #818cf8; margin-top: 0.25rem;">
+                            Belum ada file yang dipilih.
+                        </div>
+                    </div>
+                    <button type="submit" id="btn-project-submit" class="btn-submit w-full">Simpan Pekerjaan</button>
+                    <button type="button" onclick="resetProjectForm()" id="btn-project-cancel" class="hidden" style="width:100%;margin-top:.5rem;background:#475569;border:none;padding:10px;border-radius:6px;color:white;font-weight:600;cursor:pointer;">Batal Edit</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- TAB: Leaderboard -->
+        <div id="tab-leaderboard" class="tab-content hidden">
+            <h2 class="page-title">🏆 Leaderboard Karyawan</h2>
+            <p style="color:#94a3b8;margin-bottom:1rem;font-size:.875rem;">Peringkat berdasarkan rata-rata progress pekerjaan.</p>
+            <div class="table-wrap">
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Nama</th><th>Jabatan</th>
+                            <th>Total Project</th><th>Selesai</th><th>Rata-rata</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaderboard-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB: RBAC -->
+        <div id="tab-rbac" class="tab-content hidden">
+            <h2 class="page-title">👥 Manajemen Pegawai & Jabatan</h2>
+            <div class="grid md:grid-cols-2 gap-6">
+                <div class="bg-gray-800-card">
+                    <h3 id="role-form-title" style="color:#fff;font-weight:700;margin-bottom:1rem;">➕ Tambah Jabatan</h3>
+                    <form onsubmit="handleRoleSubmit(event)">
+                        <input type="hidden" id="edit-role-id">
+                        <div class="form-group">
+                            <label class="text-sm text-gray-400">Nama Jabatan</label>
+                            <input type="text" id="role-name" required class="form-input" placeholder="Contoh: Staf Administrasi">
+                        </div>
+                        <div style="display:flex;gap:.5rem;">
+                            <button type="submit" id="btn-role-submit" class="btn-submit" style="flex:1;">Simpan</button>
+                            <button type="button" id="btn-role-cancel" onclick="resetRoleForm()" class="hidden" style="background:#475569;border:none;padding:10px;border-radius:6px;color:white;font-weight:600;cursor:pointer;">Batal</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="bg-gray-800-card">
+                    <h3 style="color:#fff;font-weight:700;margin-bottom:1rem;">➕ Registrasi Pegawai</h3>
+                    <form onsubmit="handleUserSubmit(event)">
+                        <div class="form-group">
+                            <label class="text-sm text-gray-400">Nama Lengkap</label>
+                            <input type="text" id="user-fullname" required class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="text-sm text-gray-400">Username</label>
+                            <input type="text" id="user-username" required class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="text-sm text-gray-400">Password (min 6)</label>
+                            <input type="password" id="user-password" required minlength="6" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="text-sm text-gray-400">Jabatan</label>
+                            <select id="user-role-select" required class="form-input"></select>
+                        </div>
+                        <button type="submit" class="btn-submit w-full">Daftarkan</button>
+                    </form>
+                </div>
+            </div>
+            <div class="table-wrap" style="margin-top:2rem;">
+                <div class="table-title">📋 Master Jabatan</div>
+                <table class="w-full">
+                    <thead><tr><th>Nama Jabatan</th><th>Aksi</th></tr></thead>
+                    <tbody id="roles-rbac-table"></tbody>
+                </table>
+            </div>
+            <div class="table-wrap" style="margin-top:2rem;">
+                <div class="table-title">👥 Pegawai Terdaftar</div>
+                <table class="w-full">
+                    <thead><tr><th>Nama</th><th>Username</th><th>Jabatan</th><th>Aksi</th></tr></thead>
+                    <tbody id="users-rbac-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB: Activity -->
+        <div id="tab-activity" class="tab-content hidden">
+            <h2 class="page-title">📜 Log Aktivitas Sistem</h2>
+            <p style="color:#94a3b8;margin-bottom:1rem;font-size:.875rem;">200 aktivitas terakhir. Khusus Super Admin (R01).</p>
+            <div class="table-wrap">
+                <table class="w-full">
+                    <thead><tr><th>Waktu</th><th>Aktor</th><th>Aksi</th><th>Detail</th></tr></thead>
+                    <tbody id="activity-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB: Settings -->
+        <div id="tab-settings" class="tab-content hidden">
+            <h2 class="page-title">⚙️ Pengaturan</h2>
+            <div class="bg-gray-800-card" style="max-width:520px;">
+                <h3 style="color:#fff;margin-bottom:1rem;">🎨 Tema</h3>
+                <div style="display:flex;gap:.5rem;">
+                    <button onclick="setTheme('dark')" class="btn-submit" style="background:#1e293b;">🌙 Dark</button>
+                    <button onclick="setTheme('light')" class="btn-submit" style="background:#f1f5f9;color:#0f172a;">☀️ Light</button>
+                </div>
+                <hr style="border-color:#334155;margin:2rem 0;">
+                <h3 style="color:#fff;margin-bottom:1rem;">👤 Edit Profil</h3>
+                <form onsubmit="handleUpdateProfile(event)">
+                    <div class="form-group">
+                        <label class="text-sm text-gray-400">Nama Lengkap</label>
+                        <input type="text" id="prof-fullname" required class="form-input">
+                    </div>
+                    <button type="submit" class="btn-submit" style="margin-bottom: 2rem;">Simpan Profil</button>
+                </form>
+                <hr style="border-color:#334155;margin:2rem 0;">
+                <h3 style="color:#fff;margin-bottom:1rem;">🔒 Ganti Password</h3>
+                <form onsubmit="handleChangePassword(event)">
+                    <div class="form-group">
+                        <label class="text-sm text-gray-400">Password Lama</label>
+                        <input type="password" id="cp-old" required class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="text-sm text-gray-400">Password Baru (min 6)</label>
+                        <input type="password" id="cp-new" required minlength="6" class="form-input">
+                    </div>
+                    <button type="submit" class="btn-submit">Simpan Password Baru</button>
+                </form>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Modal Komentar -->
+<div id="comment-modal" class="login-overlay hidden" style="background:rgba(0,0,0,.7);">
+    <div class="login-card" style="max-width:560px;">
+        <h3 style="color:#fff;margin-bottom:1rem;">💬 Komentar Project</h3>
+        <div id="comment-list" style="max-height:300px;overflow-y:auto;margin-bottom:1rem;"></div>
+        <form onsubmit="submitComment(event)">
+            <div class="form-group">
+                <input type="text" id="comment-input" required class="form-input" placeholder="Tulis komentar…">
+            </div>
+            <div style="display:flex;gap:.5rem;">
+                <button type="submit" class="btn-submit" style="flex:1;">Kirim</button>
+                <button type="button" onclick="closeCommentModal()" class="btn-submit" style="background:#475569;">Tutup</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal Kamera (Webcam) -->
+<div id="camera-modal" class="login-overlay hidden" style="background:rgba(0,0,0,.9); z-index: 10000;">
+    <div class="login-card" style="max-width:640px; text-align:center;">
+        <h3 style="color:#fff;margin-bottom:1rem;">📷 Ambil Foto Bukti</h3>
+        
+        <!-- 1. Video stream (WAJIB ada) -->
+        <video id="camera-stream" autoplay playsinline style="width: 100%; border-radius: .5rem; background: #000; margin-bottom: 1rem; min-height: 300px; object-fit: cover;"></video>
+        
+        <!-- 2. Info GPS (WAJIB ada untuk fitur lokasi) -->
+        <div id="gps-info" style="color: #facc15; font-size: 0.85rem; margin-bottom: 1rem; text-align: left; background: rgba(0,0,0,0.5); padding: 8px; border-radius: 4px;">
+            📍 Mendeteksi lokasi GPS...
+        </div>
+        
+        <!-- 3. Canvas tersembunyi untuk menangkap gambar (WAJIB ada) -->
+        <canvas id="camera-canvas" style="display:none;"></canvas>
+        
+        <!-- 4. Tombol aksi -->
+        <div style="display:flex;gap:.5rem;">
+            <button type="button" onclick="takePhoto()" class="btn-submit" style="flex:1; background: #16a34a;">📸 Jepret Foto</button>
+            <button type="button" onclick="closeCameraModal()" class="btn-submit" style="flex:1; background: #dc2626;">Batal</button>
+        </div>
+    </div>
+</div>
+
+<script src="js/toast.js"></script>
+<script src="js/chart.min.js"></script>
+<script src="js/app.js"></script>
+
+<script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('✅ PWA Service Worker Aktif'))
+                    .catch(err => console.log('❌ PWA Gagal: ', err));
+            });
+        }
+    </script>
+</body>
+</html>

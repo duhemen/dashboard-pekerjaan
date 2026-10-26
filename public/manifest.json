@@ -1,0 +1,17 @@
+{
+  "name": "Enterprise RBAC Job Dashboard",
+  "short_name": "Job Dashboard",
+  "description": "Aplikasi manajemen laporan pekerjaan dengan GPS & Time Stamp",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3145/3145856.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

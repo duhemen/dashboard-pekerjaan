@@ -1,0 +1,25 @@
+{
+  "roles": [
+    {
+      "id": "R01",
+      "name": "Software Engineer",
+      "permissions": [
+        "view_dashboard",
+        "input_data",
+        "manage_users"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "emen",
+      "password": "password123",
+      "fullName": "Emen AI Developer",
+      "roleId": "R01"
+    }
+  ],
+  "settings": {
+    "theme": "dark"
+  },
+  "projects": []
+}
