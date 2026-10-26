@@ -421,6 +421,44 @@ function deletePegawai(username) {
 }
 
 // ==================== PROJECT CRUD ====================
+
+// FUNGSI BARU: Kompres Gambar sebelum Upload
+function compressImage(file, maxWidth, maxHeight, quality, callback) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+            let width = img.width;
+            let height = img.height;
+
+            // Hitung rasio agar tidak gepeng
+            if (width > height) {
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+            } else {
+                if (height > maxHeight) {
+                    width = Math.round((width * maxHeight) / height);
+                    height = maxHeight;
+                }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Hasil kompresi (JPEG)
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+            callback(compressedDataUrl);
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
 function handleProjectSubmit(e) {
     e.preventDefault();
     const editId = document.getElementById('edit-project-id').value;
@@ -450,14 +488,12 @@ function handleProjectSubmit(e) {
         const url = editId ? `/api/projects/${editId}` : '/api/projects';
         const method = editId ? 'PUT' : 'POST';
         
-        // Tampilkan loading (opsional, biar user tahu sedang proses)
         toast('Menyimpan data...', 'info');
 
         api(url, { method, body: JSON.stringify({ ...payload, ...extra }) })
             .then(async res => {
                 const j = await res.json();
                 if (!res.ok || j.success === false) {
-                    // LEMPAR ERROR ASLI DARI SERVER
                     throw new Error(j.message || j.error || 'Gagal menyimpan data');
                 }
                 toast(editId ? 'Pekerjaan diperbarui' : 'Pekerjaan ditambahkan', 'success');
@@ -465,7 +501,6 @@ function handleProjectSubmit(e) {
                 loadDashboardData();
                 switchTab('dashboard');
             }).catch(err => {
-                // TAMPILKAN PESAN ERROR ASLI DI TOAST
                 console.error('Save Error:', err);
                 toast('Error: ' + err.message, 'error');
             });
@@ -475,9 +510,11 @@ function handleProjectSubmit(e) {
     if (window.currentSelectedFile && !editId) {
         if (window.currentSelectedFile.size > 8 * 1024 * 1024) return toast('File maksimal 8MB', 'error');
         
-        const reader = new FileReader();
-        reader.onload = ev => send({ fileData: ev.target.result, fileName: window.currentSelectedFile.name });
-        reader.readAsDataURL(window.currentSelectedFile);
+        // PROSES KOMPRESI GAMBAR
+        toast('Mengompres gambar...', 'info');
+        compressImage(window.currentSelectedFile, 1280, 1280, 0.7, function(compressedBase64) {
+            send({ fileData: compressedBase64, fileName: window.currentSelectedFile.name });
+        });
     } else {
         send();
     }
