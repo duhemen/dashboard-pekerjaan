@@ -206,3 +206,55 @@ body.light-theme .hamburger { background: #fff; color: #0f172a; border-color: #c
     .bg-gray-800-card, .table-wrap { background: #fff !important; border: 1px solid #ccc !important; }
     th, td { color: #000 !important; }
 }
+
+/* ==================== MOBILE RESPONSIVE ==================== */
+@media (max-width: 768px) {
+    /* Sidebar jadi drawer */
+    #sidebar {
+        position: fixed;
+        left: -100%;
+        top: 0;
+        bottom: 0;
+        width: 250px;
+        z-index: 1000;
+        transition: left 0.3s ease;
+    }
+    #sidebar.open {
+        left: 0;
+    }
+    .hamburger {
+        display: block;
+        position: fixed;
+        top: 15px;
+        left: 15px;
+        z-index: 1001;
+    }
+    /* Konten utama */
+    main {
+        padding: 1rem;
+        margin-top: 3rem; /* Ruang untuk hamburger */
+    }
+    .page-title {
+        font-size: 1.5rem;
+    }
+    .grid.md\:grid-cols-3 {
+        grid-template-columns: 1fr;
+    }
+    .bg-gray-800-card {
+        padding: 1rem;
+    }
+    /* Tabel scroll horizontal */
+    .table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    /* Tombol lebih besar */
+    .btn-submit, .tab-btn {
+        padding: 0.875rem 1rem;
+    }
+    /* Form input lebih lega */
+    .form-input {
+        padding: 0.75rem;
+        font-size: 1rem;
+    }
+}
